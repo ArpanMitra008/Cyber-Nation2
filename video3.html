@@ -128,7 +128,6 @@
     let peer, userStream;
     const peers = {};
     let isHost = false;
-    let roomId = ""; // Unique Room ID for local communication
 
     async function init() {
       const username = document.getElementById('username').value.trim();
@@ -137,16 +136,17 @@
       document.getElementById('setup').style.display = 'none';
       document.getElementById('room-setup').style.display = 'flex';
 
-      try {
-        // Access media devices
-        userStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        document.getElementById('my-video').srcObject = userStream;
-      } catch (err) {
-        alert('Error accessing media devices: ' + err);
-        console.error(err);
-      }
+      userStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      document.getElementById('my-video').srcObject = userStream;
 
-      peer = new Peer();
+      // Initialize PeerJS with public PeerJS server
+      peer = new Peer(undefined, {
+        host: 'peerjs.com',
+        secure: true,
+        port: 443,
+        path: '/myapp'
+      });
+
       peer.on('open', id => console.log('Peer ID:', id));
       peer.on('call', call => {
         call.answer(userStream);
@@ -156,24 +156,18 @@
 
     function createRoom() {
       isHost = true;
-      roomId = Math.floor(Math.random() * 1000000).toString();
-      localStorage.setItem("roomId", roomId);  // Store Room ID
-      alert(`Room ID: ${roomId}`);
+      alert(`Room ID: ${peer.id}`);
       document.getElementById('room-setup').style.display = 'none';
       showControls();
-
-      // Redirect to the same page with the room ID in the URL
-      window.location.href = window.location.pathname + '?roomId=' + roomId;
     }
 
     function joinRoom() {
-      roomId = document.getElementById('room-id').value.trim();
-      if (!roomId) {
-        roomId = localStorage.getItem("roomId");  // Retrieve from localStorage if empty
-      }
+      const roomId = document.getElementById('room-id').value.trim();
       if (!roomId) return alert("Enter Room ID");
 
-      alert(`You joined Room: ${roomId}`);
+      const call = peer.call(roomId, userStream);
+      call.on('stream', stream => addVideoStream(roomId, stream));
+
       document.getElementById('room-setup').style.display = 'none';
       showControls();
     }
@@ -220,13 +214,6 @@
       alert("You left the meeting.");
       window.location.reload();
     }
-
-    window.onload = function() {
-      const savedRoomId = localStorage.getItem("roomId");
-      if (savedRoomId) {
-        document.getElementById('room-id').value = savedRoomId;
-      }
-    };
   </script>
 </body>
 </html>
