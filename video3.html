@@ -126,8 +126,9 @@
 
   <script>
     let peer, userStream;
-    const peers = {};
+    const connections = [];
     let isHost = false;
+    let myId;
 
     async function init() {
       const username = document.getElementById('username').value.trim();
@@ -140,16 +141,29 @@
       document.getElementById('my-video').srcObject = userStream;
 
       peer = new Peer();
-      peer.on('open', id => console.log('Peer ID:', id));
+      peer.on('open', id => {
+        myId = id;
+        console.log('Peer ID:', id);
+      });
+
       peer.on('call', call => {
         call.answer(userStream);
         call.on('stream', stream => addVideoStream(call.peer, stream));
+      });
+
+      peer.on('connection', conn => {
+        connections.push(conn);
+        conn.on('data', data => {
+          if (data.type === 'join' && isHost) {
+            const call = peer.call(conn.peer, userStream);
+          }
+        });
       });
     }
 
     function createRoom() {
       isHost = true;
-      alert(`Room ID: ${peer.id}`);
+      alert(`Room ID: ${myId}`);
       document.getElementById('room-setup').style.display = 'none';
       showControls();
     }
@@ -157,6 +171,11 @@
     function joinRoom() {
       const roomId = document.getElementById('room-id').value.trim();
       if (!roomId) return alert("Enter Room ID");
+
+      const conn = peer.connect(roomId);
+      conn.on('open', () => {
+        conn.send({ type: 'join' });
+      });
 
       const call = peer.call(roomId, userStream);
       call.on('stream', stream => addVideoStream(roomId, stream));
@@ -179,6 +198,7 @@
       video.srcObject = stream;
       video.id = id;
       video.autoplay = true;
+      video.playsInline = true;
       document.getElementById('video-container').appendChild(video);
     }
 
@@ -199,12 +219,15 @@
     }
 
     function endCall() {
-      alert("Meeting Ended by Host.");
+      alert("Meeting ended by host.");
+      connections.forEach(conn => conn.close());
+      peer.destroy();
       window.location.reload();
     }
 
     function leaveCall() {
       alert("You left the meeting.");
+      peer.destroy();
       window.location.reload();
     }
   </script>
