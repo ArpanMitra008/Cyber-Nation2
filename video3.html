@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Group Video Call</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.3.1/peerjs.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -124,17 +125,15 @@
   </div>
 
   <script>
-    let userStream;
-    const peerConnections = {};
+    let peer, userStream;
+    const peers = {};
     let isHost = false;
-
     let roomId = ""; // Unique Room ID for local communication
 
     async function init() {
       const username = document.getElementById('username').value.trim();
       if (!username) return alert("Enter a name!");
 
-      // Show Room Setup
       document.getElementById('setup').style.display = 'none';
       document.getElementById('room-setup').style.display = 'flex';
 
@@ -146,123 +145,88 @@
         alert('Error accessing media devices: ' + err);
         console.error(err);
       }
+
+      peer = new Peer();
+      peer.on('open', id => console.log('Peer ID:', id));
+      peer.on('call', call => {
+        call.answer(userStream);
+        call.on('stream', stream => addVideoStream(call.peer, stream));
+      });
     }
 
-    // Create Room (Host)
     function createRoom() {
       isHost = true;
       roomId = Math.floor(Math.random() * 1000000).toString();
+      localStorage.setItem("roomId", roomId);  // Store Room ID
       alert(`Room ID: ${roomId}`);
       document.getElementById('room-setup').style.display = 'none';
       showControls();
+
+      // Redirect to the same page with the room ID in the URL
+      window.location.href = window.location.pathname + '?roomId=' + roomId;
     }
 
-    // Join Room
     function joinRoom() {
-      const roomIdInput = document.getElementById('room-id').value.trim();
-      if (!roomIdInput) return alert("Enter Room ID");
+      roomId = document.getElementById('room-id').value.trim();
+      if (!roomId) {
+        roomId = localStorage.getItem("roomId");  // Retrieve from localStorage if empty
+      }
+      if (!roomId) return alert("Enter Room ID");
 
-      roomId = roomIdInput;
       alert(`You joined Room: ${roomId}`);
       document.getElementById('room-setup').style.display = 'none';
       showControls();
     }
 
-    // Show video and controls
     function showControls() {
       document.getElementById('icon-bar').style.display = 'flex';
       document.getElementById('leave-call').classList.remove('hide');
       if (isHost) {
         document.getElementById('end-call').classList.remove('hide');
       }
-      connectToOtherPeers();
     }
 
-    // Connect to other peers using WebRTC
-    function connectToOtherPeers() {
-      // Assuming roomId uniquely identifies users in the room
-      const peersInRoom = getPeersInRoom(roomId);
-      
-      peersInRoom.forEach(peerId => {
-        const peerConnection = new RTCPeerConnection();
-        peerConnections[peerId] = peerConnection;
-
-        // Add local stream to peer connection
-        userStream.getTracks().forEach(track => {
-          peerConnection.addTrack(track, userStream);
-        });
-
-        // Handle remote stream from peer
-        peerConnection.ontrack = event => {
-          addVideoStream(peerId, event.streams[0]);
-        };
-
-        // Create an offer and send it to the peer
-        peerConnection.createOffer()
-          .then(offer => {
-            return peerConnection.setLocalDescription(offer);
-          })
-          .then(() => {
-            sendSignalToPeer(peerId, peerConnection.localDescription);
-          })
-          .catch(err => {
-            console.error('Error creating offer:', err);
-          });
-      });
-    }
-
-    // Function to simulate getting peers in the room
-    function getPeersInRoom(roomId) {
-      // In a real app, you'd get this list from the signaling server or session management.
-      return roomId ? ["peer1", "peer2"] : [];
-    }
-
-    // Send signaling data to the peer (This is simplified; in real-world applications, you'd need a signaling server)
-    function sendSignalToPeer(peerId, signalData) {
-      // In a real app, this would send via WebSocket or similar
-      console.log(`Sending signal to ${peerId}:`, signalData);
-    }
-
-    // Add Video Stream to the container
-    function addVideoStream(peerId, stream) {
+    function addVideoStream(id, stream) {
+      if (document.getElementById(id)) return;
       const video = document.createElement('video');
       video.srcObject = stream;
-      video.id = peerId;
+      video.id = id;
       video.autoplay = true;
-      video.playsInline = true;
       document.getElementById('video-container').appendChild(video);
     }
 
-    // Toggle Microphone
     function toggleMic() {
       const audioTrack = userStream.getAudioTracks()[0];
       audioTrack.enabled = !audioTrack.enabled;
       document.getElementById('mic-btn').textContent = audioTrack.enabled ? '🎤' : '🔇';
     }
 
-    // Toggle Camera
     function toggleCamera() {
       const videoTrack = userStream.getVideoTracks()[0];
       videoTrack.enabled = !videoTrack.enabled;
       document.getElementById('cam-btn').textContent = videoTrack.enabled ? '🎥' : '📷';
     }
 
-    // Send Reaction
     function sendReaction(emoji) {
       alert(`Sent: ${emoji}`);
     }
 
-    // End the Call (Host only)
     function endCall() {
-      alert("Meeting ended by host.");
+      alert("Meeting Ended by Host.");
       window.location.reload();
     }
 
-    // Leave the Call
     function leaveCall() {
       alert("You left the meeting.");
       window.location.reload();
     }
+
+    window.onload = function() {
+      const savedRoomId = localStorage.getItem("roomId");
+      if (savedRoomId) {
+        document.getElementById('room-id').value = savedRoomId;
+      }
+    };
   </script>
 </body>
 </html>
