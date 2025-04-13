@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Group Video Call</title>
-  <script src="https://cdn.peerjs.com/peerjs.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -125,127 +124,143 @@
   </div>
 
   <script>
-    let peer, userStream;
-    const connections = [];
+    let userStream;
+    const peerConnections = {};
     let isHost = false;
-    let myId;
 
-    // Initialize the app, request media, and set up PeerJS
+    let roomId = ""; // Unique Room ID for local communication
+
     async function init() {
       const username = document.getElementById('username').value.trim();
       if (!username) return alert("Enter a name!");
 
+      // Show Room Setup
       document.getElementById('setup').style.display = 'none';
       document.getElementById('room-setup').style.display = 'flex';
 
-      // Access user's webcam and microphone
-      userStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      document.getElementById('my-video').srcObject = userStream;
-
-      // Set up PeerJS connection with a custom PeerJS server URL (can use the public PeerJS server)
-      peer = new Peer({
-        host: 'peerjs.com',
-        secure: true,
-        port: 443
-      });
-
-      peer.on('open', id => {
-        myId = id;
-        console.log('Peer ID:', id);
-      });
-
-      // Handle incoming calls
-      peer.on('call', call => {
-        call.answer(userStream);
-        call.on('stream', stream => addVideoStream(call.peer, stream));
-      });
-
-      peer.on('connection', conn => {
-        connections.push(conn);
-        conn.on('data', data => {
-          if (data.type === 'join' && isHost) {
-            const call = peer.call(conn.peer, userStream);
-          }
-        });
-      });
+      try {
+        // Access media devices
+        userStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        document.getElementById('my-video').srcObject = userStream;
+      } catch (err) {
+        alert('Error accessing media devices: ' + err);
+        console.error(err);
+      }
     }
 
-    // Create a new room
+    // Create Room (Host)
     function createRoom() {
       isHost = true;
-      alert(`Room ID: ${myId}`);
+      roomId = Math.floor(Math.random() * 1000000).toString();
+      alert(`Room ID: ${roomId}`);
       document.getElementById('room-setup').style.display = 'none';
       showControls();
     }
 
-    // Join an existing room
+    // Join Room
     function joinRoom() {
-      const roomId = document.getElementById('room-id').value.trim();
-      if (!roomId) return alert("Enter Room ID");
+      const roomIdInput = document.getElementById('room-id').value.trim();
+      if (!roomIdInput) return alert("Enter Room ID");
 
-      const conn = peer.connect(roomId);
-      conn.on('open', () => {
-        conn.send({ type: 'join' });
-      });
-
-      const call = peer.call(roomId, userStream);
-      call.on('stream', stream => addVideoStream(roomId, stream));
-
+      roomId = roomIdInput;
+      alert(`You joined Room: ${roomId}`);
       document.getElementById('room-setup').style.display = 'none';
       showControls();
     }
 
-    // Show video and control buttons
+    // Show video and controls
     function showControls() {
       document.getElementById('icon-bar').style.display = 'flex';
       document.getElementById('leave-call').classList.remove('hide');
       if (isHost) {
         document.getElementById('end-call').classList.remove('hide');
       }
+      connectToOtherPeers();
     }
 
-    // Add video stream from peer to video container
-    function addVideoStream(id, stream) {
-      if (document.getElementById(id)) return;
+    // Connect to other peers using WebRTC
+    function connectToOtherPeers() {
+      // Assuming roomId uniquely identifies users in the room
+      const peersInRoom = getPeersInRoom(roomId);
+      
+      peersInRoom.forEach(peerId => {
+        const peerConnection = new RTCPeerConnection();
+        peerConnections[peerId] = peerConnection;
+
+        // Add local stream to peer connection
+        userStream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, userStream);
+        });
+
+        // Handle remote stream from peer
+        peerConnection.ontrack = event => {
+          addVideoStream(peerId, event.streams[0]);
+        };
+
+        // Create an offer and send it to the peer
+        peerConnection.createOffer()
+          .then(offer => {
+            return peerConnection.setLocalDescription(offer);
+          })
+          .then(() => {
+            sendSignalToPeer(peerId, peerConnection.localDescription);
+          })
+          .catch(err => {
+            console.error('Error creating offer:', err);
+          });
+      });
+    }
+
+    // Function to simulate getting peers in the room
+    function getPeersInRoom(roomId) {
+      // In a real app, you'd get this list from the signaling server or session management.
+      return roomId ? ["peer1", "peer2"] : [];
+    }
+
+    // Send signaling data to the peer (This is simplified; in real-world applications, you'd need a signaling server)
+    function sendSignalToPeer(peerId, signalData) {
+      // In a real app, this would send via WebSocket or similar
+      console.log(`Sending signal to ${peerId}:`, signalData);
+    }
+
+    // Add Video Stream to the container
+    function addVideoStream(peerId, stream) {
       const video = document.createElement('video');
       video.srcObject = stream;
-      video.id = id;
+      video.id = peerId;
       video.autoplay = true;
       video.playsInline = true;
       document.getElementById('video-container').appendChild(video);
     }
 
-    // Toggle mic on/off
+    // Toggle Microphone
     function toggleMic() {
       const audioTrack = userStream.getAudioTracks()[0];
       audioTrack.enabled = !audioTrack.enabled;
       document.getElementById('mic-btn').textContent = audioTrack.enabled ? '🎤' : '🔇';
     }
 
-    // Toggle camera on/off
+    // Toggle Camera
     function toggleCamera() {
       const videoTrack = userStream.getVideoTracks()[0];
       videoTrack.enabled = !videoTrack.enabled;
       document.getElementById('cam-btn').textContent = videoTrack.enabled ? '🎥' : '📷';
     }
 
-    // Send emoji reaction (for demonstration purposes)
+    // Send Reaction
     function sendReaction(emoji) {
       alert(`Sent: ${emoji}`);
     }
 
-    // End the call (only for host)
+    // End the Call (Host only)
     function endCall() {
       alert("Meeting ended by host.");
-      connections.forEach(conn => conn.close());
-      peer.destroy();
       window.location.reload();
     }
 
-    // Leave the call (for all participants)
+    // Leave the Call
     function leaveCall() {
       alert("You left the meeting.");
-      peer.destroy();
       window.location.reload();
     }
   </script>
